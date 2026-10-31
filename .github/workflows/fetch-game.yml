@@ -1,0 +1,23 @@
+name: Fetch games
+on:
+  workflow_dispatch:
+    inputs:
+      dates:
+        description: 'Dates (YYYY-MM-DD) or game ids, separated by spaces'
+        required: true
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - run: node scripts/fetch-games.mjs ${{ github.event.inputs.dates }}
+      - run: |
+          git config user.name "lah-bot"
+          git config user.email "lah-bot@users.noreply.github.com"
+          git add data/games
+          git commit -m "Add games" || echo "nothing to commit"
+          git push
