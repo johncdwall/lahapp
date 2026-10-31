@@ -1,10 +1,11 @@
 import { newGame, advance, choose, swap, endIntermission, setLine } from './game.js';
 import { describe } from './engine.js';
 import { DEMO } from './data/demo.js';
+import { runCommand } from './commands.js';
 import { listLocal, loadGame, listByDate } from './net.js';
 
 const app = document.getElementById('app');
-let G = null, ui = { screen: 'home', msg: '', games: [], sel: new Set(), more: false, copies: 1, auto: false, gid: '' };
+let G = null, ui = { out: '', prompt: '', screen: 'home', msg: '', games: [], sel: new Set(), more: false, copies: 1, auto: false, gid: '' };
 const esc = s => String(s).replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
 const ord = n => ['', '1st', '2nd', '3rd', 'OT'][n] || `P${n}`;
 const abbr = (t) => G && G.game.home.id === t ? G.game.home.abbrev : G && G.game.away.id === t ? G.game.away.abbrev : '';
@@ -45,7 +46,7 @@ function home() {
   ${ui.msg ? `<p class="err">${esc(ui.msg)}</p>` : ''}`;
 }
 function setup() {
-  return `<h1>Your hand</h1><p class="dim small">Tap a Player Card to make it your Starting Line (its play counts double). Tap again to clear. You can change it once per intermission.</p>${board()}${handHtml()}<button class="btn primary" id="start">Start the game</button>`;
+  return `<h1>Your hand</h1><p class="dim small">Tap a Player Card to make it your Starting Line (its play counts double). Tap again to clear. You can change it once per intermission.</p>${board()}${handHtml()}<button class="btn primary" id="start">Start the game</button>${consoleHtml()}`;
 }
 function play() {
   const { ev, opts } = G.pending;
@@ -54,13 +55,13 @@ function play() {
   ${top.map((o, i) => `<button class="btn" data-o="${i}">${i + 1}. Score ${o.total} with ${esc(describe(o))}${o.onLine ? ' (Starting Line)' : ''}<small>${esc(o.math)}</small></button>`).join('')}
   ${!ui.more && opts.length > 4 ? `<button class="btn ghost" id="more">${opts.length - 4} more options</button>` : ''}
   <button class="btn ghost" data-o="-1">Play no cards</button>
-  <details><summary class="dim small">My hand</summary>${handHtml()}</details>${logHtml()}`;
+  <details><summary class="dim small">My hand</summary>${handHtml()}</details>${consoleHtml()}${logHtml()}`;
 }
 function inter() {
   return `<h1>Intermission</h1><p class="dim small">Swap up to 5 cards (tap to select). Tap a Player Card again after the swap, or use "Set Starting Line", to choose your line.</p>${board()}${handHtml()}
   <button class="btn" id="swap">Swap selected (${ui.sel.size}/5)</button>
   <button class="btn" id="line">Set Starting Line: tap a Player Card first</button>
-  <button class="btn primary" id="next">Start next period</button>`;
+  <button class="btn primary" id="next">Start next period</button>${consoleHtml()}`;
 }
 function logHtml() {
   const rows = [...G.me.log].reverse().slice(0, 6).map(l => `<div class="log"><b>${l.total}</b> ${esc(l.what)} · ${ord(l.per)} ${l.time}<br><span class="dim">${esc(l.math)}</span></div>`).join('');
@@ -72,12 +73,15 @@ function final() {
   const st = who => who.starLog.length ? ` Stars: ${who.starLog.map(s => `#${s.n} +${s.pts}`).join(', ')}.` : '';
   return `<h1>Final</h1>${board()}<div class="ev"><b>${w}.</b> ${esc(m.name)} ${m.final} (plays ${m.score}, stars ${m.bonus}) · ${esc(r.name)} ${r.final} (plays ${r.score}, stars ${r.bonus}).<br><span class="dim">${bp}${st(m)}</span></div>
   <h2>Your plays</h2>${m.log.map(l => `<div class="log"><b>${l.total}</b> ${esc(l.what)} · ${ord(l.per)} ${l.time}<br><span class="dim">${esc(l.math)}</span></div>`).join('') || '<p class="dim">No plays.</p>'}
-  <button class="btn primary" id="again">Play again (new deal)</button><button class="btn ghost" id="homebtn">Home</button>`;
+  <button class="btn primary" id="again">Play again (new deal)</button><button class="btn ghost" id="homebtn">Home</button>${consoleHtml()}`;
 }
 
+function consoleHtml() {
+  return `<h2>Commands</h2><form id="cmdform" class="row"><input id="cmd" placeholder="hand, 1, ok, more, swap P1, card 43, help" autocapitalize="none" autocorrect="off" enterkeyhint="send"><button class="btn primary" style="width:80px;margin:6px 0">Go</button></form>${ui.out ? `<pre class="out">${esc(ui.out)}</pre>` : ''}${ui.prompt ? `<pre class="out">${esc(ui.prompt)}</pre><button class="btn" id="copyp">Copy image prompt</button>` : ''}`;
+}
 let lastPbp = null;
 function start(pbp) {
-  lastPbp = pbp;
+  lastPbp = pbp; ui.out = ''; ui.prompt = '';
   G = newGame(pbp, { copies: ui.copies });
   G.autoMe = ui.auto; ui.sel = new Set(); ui.more = false;
   if (G.autoMe) { advance(G); } else G.phase = 'setup';
@@ -100,6 +104,16 @@ function wire() {
     $('auto').onchange = e => ui.auto = e.target.checked;
     return;
   }
+  const cf = $('cmdform');
+  if (cf) cf.onsubmit = e => {
+    e.preventDefault(); const t = $('cmd').value; if (!t.trim()) return;
+    const r = runCommand(G, t, ui);
+    ui.out = `> ${t}\n${r.out}`; ui.prompt = r.prompt || '';
+    if (r.next) { ui.sel = new Set(); endIntermission(G); }
+    ui.sel = new Set(); route();
+    const c = document.getElementById('cmd'); if (c) c.focus();
+  };
+  on('copyp', () => { try { navigator.clipboard.writeText(ui.prompt); ui.out = 'Prompt copied.'; } catch { ui.out = 'Copy failed. Select the text and copy it.'; } route(); });
   app.querySelectorAll('[data-p]').forEach(b => b.onclick = () => {
     const c = byId(b.dataset.p);
     if (G.phase === 'setup' || G.phase === 'intermission') {

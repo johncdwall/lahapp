@@ -14,7 +14,7 @@ export function secs(t) { const [m, s] = String(t || '0:0').split(':').map(Numbe
 // ---- parse an NHL play-by-play JSON into ordered LAH events ----
 export function parseGame(pbp) {
   const roster = new Map();
-  for (const r of pbp.rosterSpots || []) roster.set(r.playerId, { n: r.sweaterNumber, pos: r.positionCode, team: r.teamId });
+  for (const r of pbp.rosterSpots || []) roster.set(r.playerId, { n: r.sweaterNumber, pos: r.positionCode, team: r.teamId, name: `${(r.firstName||{}).default||''} ${(r.lastName||{}).default||''}`.trim() });
   const home = pbp.homeTeam || {}, away = pbp.awayTeam || {};
   const dressed = new Set([...roster.values()].map(r => r.n));
   const events = [];
@@ -49,7 +49,7 @@ export function parseGame(pbp) {
   }
   events.sort((a, b) => a.per - b.per || a.t - b.t || a.ord - b.ord);
   const stars = ((pbp._landing || {}).summary || {}).threeStars || [];
-  return { events, dressed: [...dressed], home, away, stars: stars.map(s => ({ star: s.star, num: s.sweaterNo })) };
+  return { events, roster: [...roster.values()], dressed: [...dressed], home, away, stars: stars.map(s => ({ star: s.star, num: s.sweaterNo })) };
 }
 
 // ---- event -> card categories ----
